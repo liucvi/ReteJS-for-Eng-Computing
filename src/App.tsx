@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { ClassicPreset } from 'rete'
 import { createEditor } from './editor/setup'
 import { Toolbar } from './editor/components/Toolbar'
@@ -73,6 +73,13 @@ type CanvasAudit = {
   status: 'ready' | 'needs-work'
   checkedAt: string
   items: CanvasAuditItem[]
+}
+
+type SelectionBox = {
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
 }
 
 type FieldInputDraft = {
@@ -522,6 +529,9 @@ export default function App() {
   const [pyRetry, setPyRetry] = useState(0)
   const [quickAdd, setQuickAdd] = useState<QuickAddState | null>(null)
   const [activeTab, setActiveTab] = useState<InspectorTab>('assistant')
+  const [inspectorWidth, setInspectorWidth] = useState(520)
+  const [assistantToolsOpen, setAssistantToolsOpen] = useState(false)
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
   const [workflowNotice, setWorkflowNotice] = useState('AI 助手已读取当前画布，可从计算书描述生成电池组编排建议。')
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([
     {
@@ -819,6 +829,29 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!selectionBox || !containerRef.current) return
+
+    const handlePointerMove = (event: PointerEvent) => {
+      event.preventDefault()
+      setSelectionBox((box) => box ? { ...box, currentX: event.clientX, currentY: event.clientY } : null)
+    }
+    const handlePointerUp = (event: PointerEvent) => {
+      event.preventDefault()
+      void finishSelectionBox(event, selectionBox)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp, { once: true })
+    window.addEventListener('pointercancel', handlePointerUp, { once: true })
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+    }
+  }, [selectionBox])
+
+  useEffect(() => {
     if (!(stats.selected instanceof FormulaCellNode)) return
     setFormulaDraft({
       title: stats.selected.label,
@@ -833,6 +866,100 @@ export default function App() {
   const quickItems = nodeCategories.flatMap((cat) =>
     cat.items.map((item) => ({ ...item, category: cat.name }))
   )
+
+  function getSelectionBoxStyle(box: SelectionBox) {
+    const rect = containerRef.current?.getBoundingClientRect()
+    const baseLeft = rect?.left || 0
+    const baseTop = rect?.top || 0
+    const left = Math.min(box.startX, box.currentX) - baseLeft
+    const top = Math.min(box.startY, box.currentY) - baseTop
+    const width = Math.abs(box.currentX - box.startX)
+    const height = Math.abs(box.currentY - box.startY)
+    return { left, top, width, height }
+  }
+
+  function shouldStartSelection(event: MouseEvent<HTMLDivElement>) {
+    if (event.button !== 0) return false
+    const target = event.target as HTMLElement
+    if (target.closest('.gh-node, .rete-context-menu, .gh-quick-add, button, input, textarea, select, [contenteditable="true"]')) return false
+    return true
+  }
+
+  function startSelectionBox(event: MouseEvent<HTMLDivElement>) {
+    if (!api || !shouldStartSelection(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectionBox({
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+    })
+  }
+
+  function startInspectorResize(event: MouseEvent<HTMLDivElement>) {
+    event.preventDefault()
+    document.body.classList.add('resizing-inspector')
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(760, Math.max(360, window.innerWidth - moveEvent.clientX))
+      setInspectorWidth(nextWidth)
+    }
+    const handleEnd = () => {
+      document.body.classList.remove('resizing-inspector')
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleEnd)
+      window.removeEventListener('pointercancel', handleEnd)
+    }
+
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleEnd, { once: true })
+    window.addEventListener('pointercancel', handleEnd, { once: true })
+  }
+
+  async function finishSelectionBox(event: PointerEvent, box: SelectionBox) {
+    if (!api || !containerRef.current) {
+      setSelectionBox(null)
+      return
+    }
+
+    const minX = Math.min(box.startX, event.clientX)
+    const maxX = Math.max(box.startX, event.clientX)
+    const minY = Math.min(box.startY, event.clientY)
+    const maxY = Math.max(box.startY, event.clientY)
+    const isClick = Math.abs(maxX - minX) < 6 && Math.abs(maxY - minY) < 6
+    const nodes = api.editor.getNodes() as (GHNode & { selected?: boolean })[]
+
+    if (isClick) {
+      for (const node of nodes) {
+        if (node.selected) {
+          node.selected = false
+          await api.area.update('node', node.id)
+        }
+      }
+      setSelectionBox(null)
+      return
+    }
+
+    let selectedCount = 0
+    for (const node of nodes) {
+      const view = api.area.nodeViews.get(node.id)
+      const element = view?.element
+      if (!element) continue
+      const rect = element.getBoundingClientRect()
+      const intersects = rect.left <= maxX && rect.right >= minX && rect.top <= maxY && rect.bottom >= minY
+      node.selected = intersects
+      if (intersects) selectedCount++
+      await api.area.update('node', node.id)
+    }
+
+    setSelectionBox(null)
+    setWorkflowNotice(
+      selectedCount > 0
+        ? `已框选 ${selectedCount} 个电池。可直接拖动任一选中电池进行批量移动，或使用复制/删除/合并等批量操作。`
+        : '框选区域内没有电池。'
+    )
+  }
   const filteredQuickItems = quickAdd
     ? quickItems
         .filter((item) => item.label.toLowerCase().includes(quickAdd.query.trim().toLowerCase()))
@@ -1607,22 +1734,34 @@ export default function App() {
   }
 
   async function deleteSelectedNode() {
-    if (!api || !stats.selected) {
-      setWorkflowNotice('请先选中一个节点，再执行删除。')
+    if (!api) return
+
+    const selected = getSelectedNodes()
+    const fallbackSelected = stats.selected ? [stats.selected] : []
+    const targets = selected.length > 0 ? selected : fallbackSelected
+
+    if (targets.length === 0) {
+      setWorkflowNotice('请先选中一个节点或框选电池组，再执行删除。')
       return
     }
 
-    const target = stats.selected
+    const targetIds = new Set(targets.map((node) => node.id))
     const connections = api.editor.getConnections().filter((connection) =>
-      connection.source === target.id || connection.target === target.id
+      targetIds.has(connection.source) || targetIds.has(connection.target)
     )
     for (const connection of connections) {
       await api.editor.removeConnection(connection.id)
     }
-    await api.editor.removeNode(target.id)
+    for (const target of targets) {
+      await api.editor.removeNode(target.id)
+    }
     triggerExecute()
     captureCanvasHistoryNow()
-    setWorkflowNotice(`已删除节点「${target.label}」，并清理 ${connections.length} 条相关连线。`)
+    setWorkflowNotice(
+      targets.length === 1
+        ? `已删除节点「${targets[0].label}」，并清理 ${connections.length} 条相关连线。`
+        : `已批量删除 ${targets.length} 个电池，并清理 ${connections.length} 条相关连线。`
+    )
   }
 
   async function expandSelectedMergedGraph() {
@@ -3462,7 +3601,7 @@ export default function App() {
   ]
 
   return (
-    <div className="app">
+    <div className="app" style={{ '--inspector-width': `${inspectorWidth}px` } as CSSProperties}>
       <Toolbar
         api={api}
         containerRef={containerRef}
@@ -3507,9 +3646,22 @@ export default function App() {
       <div
         ref={containerRef}
         className="editor-container"
+        onPointerDownCapture={startSelectionBox}
         onDoubleClick={openQuickAdd}
-      />
+      >
+        {selectionBox && (
+          <div
+            className="canvas-selection-box"
+            style={getSelectionBoxStyle(selectionBox)}
+          />
+        )}
+      </div>
       <aside className="ai-inspector">
+        <div
+          className="inspector-resizer"
+          title="拖动调整侧栏宽度"
+          onPointerDown={startInspectorResize}
+        />
         <div className="inspector-tabs">
           <button className={activeTab === 'properties' ? 'active' : ''} onClick={() => setActiveTab('properties')}>
             节点属性
@@ -3785,24 +3937,6 @@ export default function App() {
               <span>AI 工作台</span>
               <strong>DeepSeek Flash</strong>
             </div>
-            <div className="assistant-message">{workflowNotice}</div>
-            <div className="assistant-workflows">
-              <div className="assistant-workflows-title">
-                <span>AI 工作流</span>
-                <small>生成动作预案，确认后再应用到画布</small>
-              </div>
-              <div className="assistant-workflow-grid">
-                {aiWorkflowPrompts.map((item) => (
-                  <button
-                    key={item.label}
-                    disabled={aiLoading}
-                    onClick={() => void sendAiText(item.prompt)}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
             <div className="assistant-context-panel">
               <div className="assistant-context-title">
                 <span>当前上下文</span>
@@ -3837,6 +3971,7 @@ export default function App() {
                 {assistantContext.fields.length === 0 && <small>暂无字段映射，建议先给输入或关键输出设置变量名。</small>}
               </div>
             </div>
+            <div className="assistant-message">{workflowNotice}</div>
             <div className="assistant-chat">
               {aiMessages.map((message, index) => (
                 <div key={index} className={`assistant-bubble ${message.role}`}>
@@ -3894,19 +4029,48 @@ export default function App() {
                 发送
               </button>
             </div>
-            <div className="assistant-actions">
-              <button onClick={() => void runMergeAssistant()}>合并/Python化</button>
-              <button onClick={() => void convertAllFormulaNodesToPython()}>公式全转 Python</button>
-              <button onClick={() => void pythonizeCanvasAndPublishOperator()}>Python化并发布</button>
-              <button onClick={() => void pythonizePublishAndAuditOperator()}>Python化发布并审核</button>
-              <button onClick={() => void submitAuditAndSyncCalculationBook('AI 编排计算书草稿')}>回传审核同步</button>
-              <button onClick={() => void runSplitAssistant()}>拆分选中节点</button>
-              <button onClick={() => void autoLayoutCanvas()}>整理布局</button>
-              <button onClick={() => void runCanvasAudit()}>检查画布</button>
-            </div>
-            <div className="assistant-checklist">
-              <span>平台设计重点</span>
-              <p>公式可读、变量可追溯、节点可封装、领域逻辑可拆分。</p>
+            <div className={`assistant-tools-drawer ${assistantToolsOpen ? 'open' : ''}`}>
+              <button
+                className="assistant-tools-toggle"
+                onClick={() => setAssistantToolsOpen((open) => !open)}
+              >
+                {assistantToolsOpen ? '收起功能页' : '展开功能页'}
+              </button>
+              {assistantToolsOpen && (
+                <div className="assistant-tools-content">
+                  <div className="assistant-workflows">
+                    <div className="assistant-workflows-title">
+                      <span>AI 工作流</span>
+                      <small>生成动作预案，确认后再应用到画布</small>
+                    </div>
+                    <div className="assistant-workflow-grid">
+                      {aiWorkflowPrompts.map((item) => (
+                        <button
+                          key={item.label}
+                          disabled={aiLoading}
+                          onClick={() => void sendAiText(item.prompt)}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="assistant-actions">
+                    <button onClick={() => void runMergeAssistant()}>合并/Python化</button>
+                    <button onClick={() => void convertAllFormulaNodesToPython()}>公式全转 Python</button>
+                    <button onClick={() => void pythonizeCanvasAndPublishOperator()}>Python化并发布</button>
+                    <button onClick={() => void pythonizePublishAndAuditOperator()}>Python化发布并审核</button>
+                    <button onClick={() => void submitAuditAndSyncCalculationBook('AI 编排计算书草稿')}>回传审核同步</button>
+                    <button onClick={() => void runSplitAssistant()}>拆分选中节点</button>
+                    <button onClick={() => void autoLayoutCanvas()}>整理布局</button>
+                    <button onClick={() => void runCanvasAudit()}>检查画布</button>
+                  </div>
+                  <div className="assistant-checklist">
+                    <span>平台设计重点</span>
+                    <p>公式可读、变量可追溯、节点可封装、领域逻辑可拆分。</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

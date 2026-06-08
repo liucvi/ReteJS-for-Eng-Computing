@@ -1393,18 +1393,65 @@ html, body, #app {
 }
 
 .editor-container {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
   background-color: #f7fbf2;
   background-image: radial-gradient(circle, #cbd8c4 1px, transparent 1px);
   background-size: 18px 18px;
 }
 
-.ai-inspector {
-  width: 430px;
+.canvas-selection-box {
+  position: absolute;
+  z-index: 95;
   box-sizing: border-box;
-  padding: 32px 24px;
+  border: 1px solid rgba(31, 106, 85, 0.72);
+  background: rgba(31, 106, 85, 0.12);
+  border-radius: 4px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45) inset;
+}
+
+.ai-inspector {
+  position: relative;
+  width: var(--inspector-width, 520px);
+  flex: 0 0 var(--inspector-width, 520px);
+  min-width: 360px;
+  max-width: 760px;
+  box-sizing: border-box;
+  padding: 24px 22px;
   background: var(--panel);
   border-left: 1px solid var(--line);
   overflow: auto;
+}
+
+.inspector-resizer {
+  position: absolute;
+  inset: 0 auto 0 -5px;
+  width: 10px;
+  cursor: col-resize;
+  z-index: 130;
+}
+
+.inspector-resizer::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 18px;
+  bottom: 18px;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.inspector-resizer:hover::after,
+body.resizing-inspector .inspector-resizer::after {
+  background: #9fc6b2;
+}
+
+body.resizing-inspector {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .inspector-tabs {
@@ -1439,7 +1486,14 @@ html, body, #app {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
-  padding: 22px;
+  padding: 18px;
+}
+
+.assistant-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(220px, 1fr) auto auto;
+  min-height: calc(100vh - 96px);
+  gap: 12px;
 }
 
 .inspector-card h2 {
@@ -1750,7 +1804,7 @@ html, body, #app {
 }
 
 .assistant-message {
-  margin: 18px 0;
+  margin: 0;
   padding: 16px;
   border-radius: 8px;
   background: var(--green-soft);
@@ -1827,7 +1881,7 @@ html, body, #app {
 .assistant-context-panel {
   display: grid;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1919,9 +1973,14 @@ html, body, #app {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 320px;
+  max-height: none;
+  min-height: 260px;
   overflow: auto;
-  margin-bottom: 12px;
+  margin-bottom: 0;
+  padding: 12px;
+  border: 1px solid #d9e5df;
+  border-radius: 8px;
+  background: #f8fbf9;
 }
 
 .assistant-bubble {
@@ -1958,13 +2017,14 @@ html, body, #app {
   display: grid;
   grid-template-columns: 1fr;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .assistant-compose textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 94px;
+  min-height: 118px;
+  max-height: 260px;
   resize: vertical;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2007,6 +2067,47 @@ html, body, #app {
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #f8fbf9;
+}
+
+.assistant-tools-drawer {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-tools-toggle {
+  min-height: 34px;
+  border: 1px solid #d9e5df;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.assistant-tools-content {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-tools-content .assistant-workflows {
+  margin-bottom: 0;
+}
+
+.assistant-tools-content .assistant-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.assistant-tools-content .assistant-actions button {
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.assistant-tools-content .assistant-checklist {
+  margin: 0;
 }
 
 .assistant-action-preview-title {
