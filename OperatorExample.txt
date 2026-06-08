@@ -1,0 +1,53 @@
+"""伯努利方程流速算子脚本。
+
+用途：根据伯努利方程估算截面流速。
+边界：流体密度和重力加速度必须大于 0；忽略沿程损失和局部损失。
+"""
+
+import math
+from numbers import Real
+
+
+class OperatorValidationError(ValueError):
+    """算子输入不满足使用边界时抛出的异常。"""
+
+
+def _require_number(value, name):
+    """校验有限实数。"""
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise OperatorValidationError(f"{name} 必须是有限实数。")
+    value = float(value)
+    if not math.isfinite(value):
+        raise OperatorValidationError(f"{name} 不能为 NaN 或无穷大。")
+    return value
+
+
+def bernoulli_velocity(pressure_1, pressure_2, density, elevation_1=0.0, elevation_2=0.0, velocity_1=0.0, gravity=9.80665, verbose=False):
+    """按伯努利方程估算截面 2 流速，返回数字。"""
+    p1 = _require_number(pressure_1, "pressure_1")
+    p2 = _require_number(pressure_2, "pressure_2")
+    rho = _require_number(density, "density")
+    z1 = _require_number(elevation_1, "elevation_1")
+    z2 = _require_number(elevation_2, "elevation_2")
+    v1 = _require_number(velocity_1, "velocity_1")
+    g = _require_number(gravity, "gravity")
+    if rho <= 0 or g <= 0:
+        raise OperatorValidationError("density 和 gravity 必须大于 0。")
+    if v1 < 0:
+        raise OperatorValidationError("velocity_1 必须大于等于 0。")
+    velocity_squared = v1 * v1 + 2 * (p1 - p2) / rho + 2 * g * (z1 - z2)
+    if velocity_squared < -1e-12:
+        raise OperatorValidationError("按伯努利方程得到的速度平方为负，输入工况不成立。")
+    result = math.sqrt(max(0.0, velocity_squared))
+    if verbose:
+        print(f"压力 p1/p2：{p1} / {p2}")
+        print(f"密度 rho：{rho}")
+        print(f"高程 z1/z2：{z1} / {z2}")
+        print(f"初始速度 v1：{v1}")
+        print(f"速度平方：{velocity_squared}")
+        print(f"流速结果：{result}")
+    return result
+
+
+if __name__ == "__main__":
+    print(bernoulli_velocity(200000, 100000, 1000))

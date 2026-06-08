@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  graphJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("projects")
+}
+
+model ComponentFile {
+  id           String           @id @default(cuid())
+  path         String           @unique
+  name         String
+  category     String?
+  content      String
+  summary      String?
+  metadataJson Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  chunks       ComponentChunk[]
+
+  @@index([name])
+  @@index([category])
+  @@map("component_files")
+}
+
+model ComponentChunk {
+  id           String        @id @default(cuid())
+  fileId       String
+  chunkIndex   Int
+  content      String
+  metadataJson Json?
+  createdAt    DateTime      @default(now())
+  file         ComponentFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, chunkIndex])
+  @@map("component_chunks")
+}
